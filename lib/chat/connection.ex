@@ -10,32 +10,41 @@ defmodule Chat.Connection do
     Registry.register(ChatRegistry, :room, nil)
     :inet.setopts(socket, active: true)
 
-    {:ok, socket}
+    {:ok, %{socket: socket, buffer: ""}}
   end
 
   @impl true
-  def handle_info({:tcp, socket, data}, socket) do
-    Registry.dispatch(ChatRegistry, :room, fn entries ->
-      for {pid, _} <- entries, pid != self(), do: send(pid, {:broadcast, data})
+  def handle_info({:tcp, _socket, data}, state) do
+    new_buffer = state.buffer <> data
+    parts = String.split(new_buffer, "\n")
+    complete_messages = Enum.drop(parts, -1)
+    remaining_buffer = List.last(parts) || ""
+
+    Enum.each(complete_messages, fn msg ->
+      Registry.dispatch(ChatRegistry, :room, fn entries ->
+        for {pid, _} <- entries, pid != self() do
+          send(pid, {:broadcast, msg <> "\n"})
+        end
+      end)
     end)
 
-    {:noreply, socket}
+    {:noreply, %{state | buffer: remaining_buffer}}
   end
 
   @impl true
-  def handle_info({:broadcast, data}, socket) do
-    :gen_tcp.send(socket, data)
+  def handle_info({:broadcast, data}, state) do
+    :gen_tcp.send(state.socket, data)
 
-    {:noreply, socket}
+    {:noreply, state}
   end
 
   @impl true
-  def handle_info({:tcp_closed, _socket}, socket) do
-    {:stop, :normal, socket}
+  def handle_info({:tcp_closed, _socket}, state) do
+    {:stop, :normal, state}
   end
 
   @impl true
-  def handle_info({:tcp_error, _socket, reason}, socket) do
-    {:stop, reason, socket}
+  def handle_info({:tcp_error, _socket, reason}, state) do
+    {:stop, reason, state}
   end
 end
