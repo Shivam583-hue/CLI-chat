@@ -7,6 +7,7 @@ defmodule Chat.Connection do
 
   @impl true
   def init(socket) do
+    Registry.register(ChatRegistry, :room, nil)
     :inet.setopts(socket, active: true)
 
     {:ok, socket}
@@ -14,7 +15,16 @@ defmodule Chat.Connection do
 
   @impl true
   def handle_info({:tcp, socket, data}, socket) do
-    :gen_tcp.send(socket, "Echo: #{data}")
+    Registry.dispatch(ChatRegistry, :room, fn entries ->
+      for {pid, _} <- entries, pid != self(), do: send(pid, {:broadcast, data})
+    end)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:broadcast, data}, socket) do
+    :gen_tcp.send(socket, data)
 
     {:noreply, socket}
   end
