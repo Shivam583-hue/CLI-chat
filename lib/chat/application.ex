@@ -6,6 +6,8 @@ defmodule Chat.Application do
     port = 4040
 
     children = [
+      Chat.RoomSupervisor,
+      Chat.RoomRegistry,
       {Registry, keys: :duplicate, name: ChatRegistry},
       Chat.ConnectionSupervisor,
       {Chat.Server, port}
