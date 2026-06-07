@@ -10,7 +10,9 @@ defmodule Chat.Connection do
     Registry.register(ChatRegistry, :room, nil)
     :inet.setopts(socket, active: true)
 
-    {:ok, %{socket: socket, buffer: ""}}
+    :gen_tcp.send(socket, "Enter your nickname:\n")
+
+    {:ok, %{socket: socket, buffer: "", nick: ""}}
   end
 
   @impl true
@@ -20,16 +22,30 @@ defmodule Chat.Connection do
     complete_messages = Enum.drop(parts, -1)
     remaining_buffer = List.last(parts) || ""
 
-    Enum.each(complete_messages, fn msg ->
-      Registry.dispatch(ChatRegistry, :room, fn entries ->
-        for {pid, _} <- entries, pid != self() do
-          send(pid, {:broadcast, msg <> "\n"})
-        end
-      end)
-    end)
+    case {state.nick, complete_messages} do
+      {"", [nick | rest]} ->
+        Enum.each(rest, fn msg ->
+          broadcast("#{nick}: #{msg}\n")
+        end)
 
-    {:noreply, %{state | buffer: remaining_buffer}}
+        {:noreply, %{state | nick: nick, buffer: remaining_buffer}}
+
+      _ ->
+        Enum.each(complete_messages, fn msg ->
+          broadcast("#{state.nick}: #{msg}\n")
+        end)
+
+        {:noreply, %{state | buffer: remaining_buffer}}
+    end
   end
+
+  defp broadcast(message) do
+  Registry.dispatch(ChatRegistry, :room, fn entries ->
+    for {pid, _} <- entries, pid != self() do
+      send(pid, {:broadcast, message})
+    end
+  end)
+end
 
   @impl true
   def handle_info({:broadcast, data}, state) do
@@ -40,6 +56,14 @@ defmodule Chat.Connection do
 
   @impl true
   def handle_info({:tcp_closed, _socket}, state) do
+    if state.nick != "" do
+      Registry.dispatch(ChatRegistry, :room, fn entries ->
+        for {pid, _} <- entries, pid != self() do
+          send(pid, {:broadcast, "#{state.nick} has left the chat server.\n"})
+        end
+      end)
+    end
+
     {:stop, :normal, state}
   end
 
