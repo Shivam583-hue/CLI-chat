@@ -7,13 +7,14 @@ defmodule Chat.Connection do
 
   @impl true
   def init(socket) do
-    Registry.register(ChatRegistry, :room, nil)
     :inet.setopts(socket, active: true)
 
-    :gen_tcp.send(socket, "Enter your nickname:\n")
+    :gen_tcp.send(socket, "Welcome! Type '1' to create a room, or '2' to join a room: \n")
 
-    {:ok, %{socket: socket, buffer: "", nick: ""}}
+    {:ok, %{socket: socket, buffer: "", nick: nil, mode: :choosing, room_pid: nil}}
   end
+
+  # ask for mode, save mode, check first line, if mode is join, take the code, add to that room, then back to the nickname process before they start chatting.
 
   @impl true
   def handle_info({:tcp, _socket, data}, state) do
@@ -22,30 +23,75 @@ defmodule Chat.Connection do
     complete_messages = Enum.drop(parts, -1)
     remaining_buffer = List.last(parts) || ""
 
-    case {state.nick, complete_messages} do
-      {"", [nick | rest]} ->
-        Enum.each(rest, fn msg ->
-          broadcast("#{nick}: #{msg}\n")
-        end)
+    new_state =
+      Enum.reduce(complete_messages, state, fn line, current_state ->
+        process_line(String.trim(line), current_state)
+      end)
 
-        {:noreply, %{state | nick: nick, buffer: remaining_buffer}}
+    {:noreply, %{new_state | buffer: remaining_buffer}}
+  end
 
-      _ ->
-        Enum.each(complete_messages, fn msg ->
-          broadcast("#{state.nick}: #{msg}\n")
-        end)
+  defp process_line("1", %{mode: :choosing} = state) do
+    room_code = for(_ <- 1..6, into: "", do: <<Enum.random(?A..?Z)>>)
 
-        {:noreply, %{state | buffer: remaining_buffer}}
+    {:ok, room_pid} = Chat.RoomSupervisor.start_room(room_code, self())
+
+    :ok = Chat.RoomRegistry.register_room(room_code, room_pid)
+
+    :ok = Chat.Room.join(room_pid, self())
+
+    :gen_tcp.send(state.socket, "Room created! Code: #{room_code}\nEnter your nickname:\n")
+
+    # Advance the state machine to :naming and save the room_pid
+    %{state | mode: :naming, room_pid: room_pid}
+  end
+
+  defp process_line("2", %{mode: :choosing} = state) do
+    :gen_tcp.send(state.socket, "Enter room code:\n")
+
+    # Advance the state machine to :entering_code
+    %{state | mode: :entering_code}
+  end
+
+  defp process_line(_invalid, %{mode: :choosing} = state) do
+    :gen_tcp.send(state.socket, "Invalid choice. Type '1' to Create or '2' to Join:\n")
+    state
+  end
+
+  defp process_line(room_code, %{mode: :entering_code} = state) do
+    # Look up the code in our global directory phone book
+    case Chat.RoomRegistry.lookup_room(room_code) do
+      room_pid when is_pid(room_pid) ->
+        # Room found! Join it.
+        :ok = Chat.Room.join(room_pid, self())
+        :gen_tcp.send(state.socket, "Room joined successfully!\nEnter your nickname:\n")
+
+        # Advance the state machine to :naming and save the room_pid
+        %{state | mode: :naming, room_pid: room_pid}
+
+      nil ->
+        # Room not found. Keep them in this state to try again.
+        :gen_tcp.send(state.socket, "Invalid room code. Try again:\n")
+        state
     end
   end
 
-  defp broadcast(message) do
-  Registry.dispatch(ChatRegistry, :room, fn entries ->
-    for {pid, _} <- entries, pid != self() do
-      send(pid, {:broadcast, message})
-    end
-  end)
-end
+  defp process_line(nick, %{mode: :naming} = state) do
+    # Tell the room process to notify everyone else that we arrived
+    Chat.Room.broadcast(state.room_pid, "#{nick} joined the room!\n", self())
+
+    :gen_tcp.send(state.socket, "Welcome to the room, #{nick}!\n")
+
+    # Advance the state machine to :chatting and save their chosen nickname
+    %{state | mode: :chatting, nick: nick}
+  end
+
+  defp process_line(msg, %{mode: :chatting} = state) do
+    # Directly forward the message payload to the isolated Room process
+    Chat.Room.broadcast(state.room_pid, "#{state.nick}: #{msg}\n", self())
+
+    state
+  end
 
   @impl true
   def handle_info({:broadcast, data}, state) do

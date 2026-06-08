@@ -30,3 +30,4 @@ defmodule Chat.RoomRegistry do
     {:reply, room_pid, state}
   end
 end
+
