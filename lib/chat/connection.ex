@@ -111,12 +111,8 @@ defmodule Chat.Connection do
 
   @impl true
   def handle_info({:tcp_closed, _socket}, state) do
-    if state.nick != "" do
-      Registry.dispatch(ChatRegistry, :room, fn entries ->
-        for {pid, _} <- entries, pid != self() do
-          send(pid, {:broadcast, "#{state.nick} has left the chat server.\n"})
-        end
-      end)
+    if state.nick != nil and state.room_pid != nil do
+      Chat.Room.broadcast(state.room_pid, "#{state.nick} has left the chat.\n", self())
     end
 
     {:stop, :normal, state}

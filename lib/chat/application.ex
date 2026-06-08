@@ -3,12 +3,15 @@ defmodule Chat.Application do
 
   @impl true
   def start(_type, _args) do
-    port = 4040
+    port =
+      case System.get_env("CHAT_PORT") do
+        nil -> 4040
+        val -> String.to_integer(val)
+      end
 
     children = [
       Chat.RoomSupervisor,
       Chat.RoomRegistry,
-      {Registry, keys: :duplicate, name: ChatRegistry},
       Chat.ConnectionSupervisor,
       {Chat.Server, port}
     ]
