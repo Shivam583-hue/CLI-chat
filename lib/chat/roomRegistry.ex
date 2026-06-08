@@ -31,3 +31,4 @@ defmodule Chat.RoomRegistry do
   end
 end
 
+# [ ] Phase A4 — Creator-leaves-kills-room. The OTP payoff again. When a Room starts, it does Process.monitor(creator_pid). When the creator's connection process dies, the Room gets {:DOWN, ...}, broadcasts "room closing" to members, and stops itself. Because the Room dying cleanly disconnects its members (monitor/notify them), teardown is automatic — "let it crash" doing your lifecycle logic, same trick as your leave-messages.

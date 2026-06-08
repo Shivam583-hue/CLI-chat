@@ -7,6 +7,8 @@ defmodule Chat.Room do
 
   @impl true
   def init(%{room_code: room_code, creator_pid: creator_pid}) do
+    Process.monitor(creator_pid)
+
     {:ok, %{code: room_code, creator_pid: creator_pid, member_pids: []}}
   end
 
@@ -22,6 +24,18 @@ defmodule Chat.Room do
 
   def broadcast(room_pid, message, sender_pid) do
     GenServer.cast(room_pid, {:broadcast, message, sender_pid})
+  end
+
+  @impl true
+  def handle_info(
+        {:DOWN, _ref, :process, creator_pid, _reason},
+        %{creator_pid: creator_pid} = state
+      ) do
+    Enum.each(state.member_pids, fn pid ->
+      send(pid, :room_closed)
+    end)
+
+    {:stop, :normal, state}
   end
 
   @impl true

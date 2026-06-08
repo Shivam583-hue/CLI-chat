@@ -34,7 +34,10 @@ defmodule Chat.Connection do
   defp process_line("1", %{mode: :choosing} = state) do
     room_code = for(_ <- 1..6, into: "", do: <<Enum.random(?A..?Z)>>)
 
+    # starts room 
     {:ok, room_pid} = Chat.RoomSupervisor.start_room(room_code, self())
+
+    # supervise the pid process ?
 
     :ok = Chat.RoomRegistry.register_room(room_code, room_pid)
 
@@ -44,6 +47,12 @@ defmodule Chat.Connection do
 
     # Advance the state machine to :naming and save the room_pid
     %{state | mode: :naming, room_pid: room_pid}
+  end
+
+  @impl true
+  def handle_info(:room_closed, state) do
+    :gen_tcp.send(state.socket, "The room host has closed the room. Goodbye!\n")
+    {:stop, :normal, state}
   end
 
   defp process_line("2", %{mode: :choosing} = state) do
