@@ -4,7 +4,8 @@ A real-time TCP chat server built with Elixir. Create or join rooms with a 6-let
 
 ## Demo
 
-<!-- Add demo gif/video here -->
+
+![demo](demo.gif)
 
 ## Connect to the Server
 
