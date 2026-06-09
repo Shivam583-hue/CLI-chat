@@ -104,7 +104,8 @@ defmodule Chat.Connection do
 
   @impl true
   def handle_info({:broadcast, data}, state) do
-    :gen_tcp.send(state.socket, data)
+    # Save cursor, move to beginning of line, clear line, print message, restore cursor
+    :gen_tcp.send(state.socket, "\r\e[2K" <> data <> "\r")
 
     {:noreply, state}
   end
